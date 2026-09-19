@@ -1,34 +1,35 @@
 # Live-Akkorderkennung mit HPCP-Chroma
 
-Eine Webanwendung, die das Mikrofonsignal in Echtzeit analysiert, daraus einen
+Eine Webanwendung, die das Mikrofonsignal oder eine hochgeladene Audiodatei in Echtzeit analysiert, daraus einen
 Chroma-Vektor (HPCP, *Harmonic Pitch Class Profile*) berechnet und den gespielten
 Akkord oder Einzelton erkennt. Die Verarbeitungskette folgt der
 [Real-Time-HPCP-Chroma-Demo](https://mtg.github.io/essentia.js/examples/#/demos/hpcp-chroma-rt)
 der Music Technology Group (MTG) der Universitat Pompeu Fabra, Barcelona.
 
-Seminarprojekt im Fach **Musikinformatik**, Heinrich-Heine-Universität Düsseldorf.
+Seminarprojekt im Fach **Musikinformatik**, Hochschule Düsseldorf (HSD).
 
-**Autor:** [ Ali Kianrad , Fatemeh Naghipour ] · 
+**Autoren:** Ali Kianrad, Fatemeh Naghipour
 
-**Live-Demo:** `https://<benutzername>.github.io/<repository>/`
+**Live-Demo:** https://alikianrad81ak-spec.github.io/live-akkorderkennung/
 
 ---
 
 ## Funktionen
 
 - **Analyse starten:** fragt den Mikrofonzugriff an, öffnet den Audiostrom und schaltet den Knopf in den Zustand „Höre zu …“.
+- **Audiodatei analysieren:** lädt eine lokale Audiodatei (MP3, WAV, M4A, OGG, FLAC), spielt sie in einem Player ab und schickt sie durch dieselbe Verarbeitungskette wie das Mikrofonsignal. Pause und Spulen im Player wirken sich direkt auf die Anzeige aus. Die Datei verlässt den Rechner nicht.
 - **Analyse stoppen:** beendet alle Spuren des Mikrofonstroms (die Mikrofonanzeige des Betriebssystems erlischt), trennt alle Audioknoten, schließt den `AudioContext` und setzt die Oberfläche zurück.
 - **Zentrale Anzeige:** der erkannte Akkord in großer Schrift, umgeben von einem Chroma-Rad mit den zwölf Tonklassen. Akkordtöne werden markiert, der Grundton farbig hervorgehoben.
 - **Erkannte Akkordtypen:** Dur, Moll, vermindert, übermäßig sowie Einzeltöne, jeweils auf allen zwölf Grundtönen (60 Vorlagen).
-- **Audio-Monitor:** zeigt Verfahren, Abtastrate, Puffergröße, Anzahl der Frames, Rechenzeit pro Frame, Pegel in dBFS, die drei besten Kandidaten, den HPCP-Vektor und ein Protokoll aller Ereignisse.
+- **Audio-Monitor:** zeigt Quelle, Verfahren, Abtastrate, Puffergröße, Anzahl der Frames, Rechenzeit pro Frame, Pegel in dBFS, die drei besten Kandidaten, den HPCP-Vektor und ein Protokoll aller Ereignisse.
 - **Fallback-Architektur:** Kann Essentia.js nicht geladen werden oder tritt zur Laufzeit ein Fehler auf, wechselt die Anwendung automatisch auf eine eigene FFT-Chroma-Berechnung mit dem `AnalyserNode`. Die Analyse läuft ohne Unterbrechung weiter.
 - **Einstellungen:** Notenschrift international (C … B) oder deutsch (C … H), einstellbare Stille-Schwelle, Fallback manuell erzwingen (zum Vergleich beider Verfahren in der Präsentation).
 
 ## Schnellstart
 
 Der Mikrofonzugriff (`getUserMedia`) ist nur in einem sicheren Kontext erlaubt,
-also über **HTTPS** oder **localhost**. Ein Öffnen der Datei per Doppelklick
-reicht deshalb nicht in jedem Browser.
+also über **HTTPS** oder **localhost**. Die Analyse von Audiodateien funktioniert
+auch ohne sicheren Kontext.
 
 ### Veröffentlichung über GitHub Pages
 
@@ -38,11 +39,11 @@ reicht deshalb nicht in jedem Browser.
    git add .
    git commit -m "Live-Akkorderkennung mit Essentia.js"
    git branch -M main
-   git remote add origin https://github.com/<benutzername>/<repository>.git
+   git remote add origin https://github.com/alikianrad81ak-spec/live-akkorderkennung.git
    git push -u origin main
    ```
 2. Im Repository unter **Settings → Pages** als Quelle *Deploy from a branch*, Branch `main`, Ordner `/ (root)` wählen.
-3. Nach ein bis zwei Minuten ist die Seite unter `https://<benutzername>.github.io/<repository>/` erreichbar.
+3. Nach ein bis zwei Minuten ist die Seite unter https://alikianrad81ak-spec.github.io/live-akkorderkennung/ erreichbar.
 
 ### Lokal testen
 
@@ -57,13 +58,11 @@ Anschließend `http://localhost:8000` im Browser öffnen.
 
 ```
 live-akkorderkennung/
-├── index.html              Oberfläche (Kopf, Chroma-Rad, Monitor)
-├── css/
-│   └── style.css           dunkles Farbschema, responsives Layout
-├── js/
-│   ├── chords.js           Akkordvorlagen und Template-Matching
-│   ├── fallback-chroma.js  FFT-Chroma ohne WebAssembly
-│   └── app.js              Audio-Eingang, HPCP, Zustandsverwaltung, Darstellung
+├── index.html          Oberfläche (Kopf, Chroma-Rad, Monitor)
+├── style.css           dunkles Farbschema, responsives Layout
+├── chords.js           Akkordvorlagen und Template-Matching
+├── fallback-chroma.js  FFT-Chroma ohne WebAssembly
+├── app.js              Audio-Eingang, HPCP, Zustandsverwaltung, Darstellung
 └── README.md
 ```
 
@@ -74,7 +73,8 @@ das zur Laufzeit von jsDelivr geladen wird.
 
 ```mermaid
 flowchart LR
-    M[Mikrofon<br>getUserMedia] --> S[MediaStreamSource]
+    M[Mikrofon<br>getUserMedia] --> S[Quellknoten]
+    D[Audiodatei<br>audio-Element] --> S
     S --> P[ScriptProcessorNode<br>Puffer 4096]
     S --> A[AnalyserNode<br>FFT 8192]
     P --> E{Essentia.js<br>verfügbar?}
@@ -90,12 +90,20 @@ flowchart LR
 
 ### 1. Audio-Eingang
 
+**Mikrofon:** 
 `getUserMedia` wird mit abgeschalteter Echounterdrückung, Rauschunterdrückung
 und automatischer Verstärkungsregelung aufgerufen, weil diese Sprachfilter
 Musiksignale verfälschen. Der `ScriptProcessorNode` liefert Blöcke von 4096
 Samples, bei 44,1 kHz also etwa alle 93 ms (≈ 10,8 Frames pro Sekunde). Der
 Knoten ist über einen stummgeschalteten `GainNode` mit dem Ausgang verbunden,
 da Chrome den Knoten sonst nicht aufruft; eine Rückkopplung ist ausgeschlossen.
+
+**Audiodatei:** Die gewählte Datei wird über eine Object-URL in ein
+`<audio>`-Element geladen und mit `createMediaElementSource()` in den
+AudioContext eingespeist. Der Quellknoten ist zusätzlich mit dem Ausgang
+verbunden, damit die Datei hörbar bleibt. Ab dem Quellknoten ist die Kette
+identisch mit der des Mikrofons. Das eignet sich für reproduzierbare
+Vorführungen und für Tests mit Aufnahmen bekannter Akkordfolgen.
 
 ### 2. HPCP mit Essentia.js (Hauptverfahren)
 

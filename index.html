@@ -15,13 +15,17 @@
   <header class="kopf">
     <div class="titel">
       <h1>Live-Akkorderkennung</h1>
-      <p>HPCP-Chroma in Echtzeit mit Web Audio API und Essentia.js. Seminarprojekt Musikinformatik, Heinrich-Heine-Universität Düsseldorf.</p>
+      <p>HPCP-Chroma in Echtzeit mit Web Audio API und Essentia.js. Seminarprojekt Musikinformatik, Hochschule Düsseldorf.</p>
     </div>
     <div class="steuerung">
       <button id="btnStart" class="knopf knopf-start" type="button" aria-pressed="false">
         <span class="punkt" aria-hidden="true"></span>
         <span id="btnStartText">Analyse starten</span>
       </button>
+      <button id="btnDatei" class="knopf knopf-datei" type="button" aria-pressed="false">
+        <span id="btnDateiText">Audiodatei analysieren</span>
+      </button>
+      <input id="dateiEingabe" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac" hidden>
       <button id="btnStop" class="knopf knopf-stop" type="button" disabled>Analyse stoppen</button>
     </div>
   </header>
@@ -37,6 +41,12 @@
           <div id="akkordSymbol" class="akkord-symbol">–</div>
           <div id="akkordName" class="akkord-name">Bereit</div>
         </div>
+      </div>
+
+      <!-- Player für hochgeladene Audiodateien -->
+      <div id="playerBox" class="player" hidden>
+        <div class="player-kopf">Datei: <strong id="dateiName"></strong></div>
+        <div id="player"></div>
       </div>
 
       <div class="einstellungen">
@@ -68,6 +78,7 @@
       </div>
 
       <dl class="werte">
+        <div class="breit"><dt>Quelle</dt><dd id="wQuelle">–</dd></div>
         <div><dt>Verfahren</dt><dd id="wVerfahren">–</dd></div>
         <div><dt>Abtastrate</dt><dd id="wRate">–</dd></div>
         <div><dt>Puffergröße</dt><dd>4096 Samples</dd></div>

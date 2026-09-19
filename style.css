@@ -27,6 +27,8 @@
 *::before,
 *::after { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html, body { margin: 0; }
 
 body {
@@ -116,9 +118,11 @@ body {
   opacity: 0.35;
 }
 
-/* Aktiver Zustand „Höre zu …“ */
-.knopf-start.aktiv,
-.knopf-start.aktiv:disabled {
+.knopf-datei:hover:not(:disabled) { border-color: var(--messing); color: var(--messing); }
+
+/* Aktiver Zustand „Höre zu …“ bzw. „Analysiere Datei …“ */
+.knopf.aktiv,
+.knopf.aktiv:disabled {
   background: transparent;
   border-color: var(--ok);
   color: var(--ok);
@@ -240,6 +244,32 @@ body {
   to   { opacity: 1;   transform: none; }
 }
 
+/* ---------- Player für Audiodateien ---------- */
+
+.player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(100%, 560px);
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--linie);
+  border-radius: 12px;
+  background: var(--flaeche);
+}
+
+.player-kopf {
+  color: var(--gedaempft);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.player-kopf strong { color: var(--text); font-weight: 600; }
+
+.player audio {
+  display: block;
+  width: 100%;
+}
+
 /* ---------- Einstellungen ---------- */
 
 .einstellungen {
@@ -326,6 +356,8 @@ body {
   gap: 0.8rem 1rem;
   margin: 0;
 }
+
+.werte .breit { grid-column: 1 / -1; }
 
 .werte dt {
   color: var(--gedaempft);

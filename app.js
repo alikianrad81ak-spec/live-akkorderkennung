@@ -1,9 +1,9 @@
 /* ==========================================================================
    app.js – Hauptlogik der Live-Akkorderkennung
    --------------------------------------------------------------------------
-   Signalkette:
-     Mikrofon (getUserMedia)
-       → MediaStreamSource
+   Signalkette (Quelle: Mikrofon oder hochgeladene Audiodatei):
+     Mikrofon (getUserMedia) bzw. Audiodatei (<audio> + MediaElementSource)
+       → MediaStreamSource / MediaElementSource
        → ScriptProcessorNode (Puffer 4096)  → Essentia.js HPCP  ─┐
        → AnalyserNode (FFT 8192)            → FFT-Chroma (Fallback)┤
                                                                    ↓
@@ -64,6 +64,13 @@
   const el = {
     start: $('btnStart'),
     startText: $('btnStartText'),
+    datei: $('btnDatei'),
+    dateiText: $('btnDateiText'),
+    dateiEingabe: $('dateiEingabe'),
+    playerBox: $('playerBox'),
+    player: $('player'),
+    dateiName: $('dateiName'),
+    quelle: $('wQuelle'),
     stop: $('btnStop'),
     rad: $('chromaRad'),
     akkordBox: $('akkordBox'),
@@ -93,6 +100,8 @@
   const zustand = {
     laeuft: false,
     startetGerade: false,
+    quellArt: 'mikrofon',       // 'mikrofon' | 'datei'
+    mikrofonMoeglich: true,
 
     // Web Audio
     audioCtx: null,
@@ -101,6 +110,8 @@
     analyser: null,
     prozessor: null,
     senke: null,
+    audioEl: null,             // Audio-Element bei Dateianalyse
+    dateiUrl: null,
 
     // Merkmalsextraktion
     essentia: null,
@@ -332,11 +343,11 @@
 
     if (neu === 'essentia') {
       protokoll('Verfahren: ' + VERFAHREN_NAME.essentia + '.', 'ok');
-      setzeStatus('Analyse läuft mit Essentia.js (HPCP).', 'ok');
+      setzeStatus((zustand.quellArt === 'datei' ? 'Dateianalyse' : 'Analyse') + ' läuft mit Essentia.js (HPCP).', 'ok');
     } else {
       const grund = el.fallbackErzwingen.checked ? 'manuell erzwungen' : 'Essentia.js nicht verfügbar';
       protokoll('Verfahren: ' + VERFAHREN_NAME.fallback + ' (' + grund + ').', 'warn');
-      setzeStatus('Analyse läuft mit FFT-Chroma (Fallback, ' + grund + ').', 'warn');
+      setzeStatus((zustand.quellArt === 'datei' ? 'Dateianalyse' : 'Analyse') + ' läuft mit FFT-Chroma (Fallback, ' + grund + ').', 'warn');
     }
   }
 
@@ -554,7 +565,7 @@
 
     switch (a.id) {
       case 'bereit': name = 'Bereit'; break;
-      case 'hoert':  name = 'Höre zu …'; break;
+      case 'hoert':  name = zustand.quellArt === 'datei' ? 'Datei wird analysiert …' : 'Höre zu …'; break;
       case 'stille': name = 'Stille. Spiel einen Ton oder Akkord.'; break;
       case 'unklar': symbol = '?'; name = 'Kein eindeutiger Akkord'; break;
       default: {
@@ -666,19 +677,36 @@
   // Start und Stopp
   // ------------------------------------------------------------------------
 
-  function setzeStartKnopf(modus) {
-    el.start.classList.toggle('aktiv', modus === 'aktiv');
+  function setzeKnoepfe(modus) {
+    const art = zustand.quellArt;
+    const aktiv = modus === 'aktiv';
+    const laedt = modus === 'laedt';
+
+    el.start.classList.toggle('aktiv', aktiv && art === 'mikrofon');
     el.startText.textContent =
-      modus === 'aktiv' ? 'Höre zu …' :
-      modus === 'laedt' ? 'Mikrofon wird angefragt …' :
+      art === 'mikrofon' && aktiv ? 'Höre zu …' :
+      art === 'mikrofon' && laedt ? 'Mikrofon wird angefragt …' :
       'Analyse starten';
-    el.start.disabled = modus !== 'bereit';
-    el.start.setAttribute('aria-pressed', String(modus === 'aktiv'));
-    el.stop.disabled = modus !== 'aktiv';
+    el.start.setAttribute('aria-pressed', String(aktiv && art === 'mikrofon'));
+    el.start.disabled = modus !== 'bereit' || !zustand.mikrofonMoeglich;
+
+    el.datei.classList.toggle('aktiv', aktiv && art === 'datei');
+    el.dateiText.textContent =
+      art === 'datei' && aktiv ? 'Analysiere Datei …' :
+      art === 'datei' && laedt ? 'Datei wird geladen …' :
+      'Audiodatei analysieren';
+    el.datei.setAttribute('aria-pressed', String(aktiv && art === 'datei'));
+    el.datei.disabled = modus !== 'bereit';
+
+    el.stop.disabled = !aktiv;
   }
 
   function beschreibeFehler(fehler) {
     const name = fehler && fehler.name;
+    if (zustand.quellArt === 'datei') {
+      return 'Die Datei konnte nicht abgespielt werden. Verwende ein gängiges Format wie MP3, WAV, M4A oder OGG. (' +
+        (fehler && fehler.message ? fehler.message : String(fehler)) + ')';
+    }
     if (name === 'NotAllowedError' || name === 'SecurityError') {
       return 'Mikrofonzugriff wurde verweigert. Erlaube den Zugriff in den Website-Einstellungen des Browsers und starte die Analyse erneut.';
     }
@@ -691,37 +719,120 @@
     return 'Start fehlgeschlagen: ' + (fehler && fehler.message ? fehler.message : String(fehler));
   }
 
-  async function starten() {
+  /** Größe einer Datei lesbar formatieren. */
+  function dateiGroesse(bytes) {
+    return bytes >= 1048576 ? zahl(bytes / 1048576, 1) + ' MB' : zahl(bytes / 1024, 0) + ' kB';
+  }
+
+  /**
+   * Erzeugt ein Audio-Element für die gewählte Datei und wartet, bis der
+   * Browser die Datei dekodieren kann. Pro AudioContext wird ein neues
+   * Element benötigt, weil createMediaElementSource() ein Element dauerhaft
+   * an einen Kontext bindet.
+   */
+  function erzeugePlayer(datei) {
+    return new Promise(function (resolve, reject) {
+      const url = URL.createObjectURL(datei);
+      zustand.dateiUrl = url;
+      const audio = new Audio();
+      audio.controls = true;
+      audio.preload = 'auto';
+      audio.setAttribute('aria-label', 'Wiedergabe von ' + datei.name);
+      const aufraeumen = function () {
+        audio.removeEventListener('canplay', ok);
+        audio.removeEventListener('error', fehler);
+      };
+      const ok = function () { aufraeumen(); resolve(audio); };
+      const fehler = function () {
+        aufraeumen();
+        reject(new Error(audio.error ? 'Medienfehler ' + audio.error.code : 'Unbekannter Medienfehler'));
+      };
+      audio.addEventListener('canplay', ok);
+      audio.addEventListener('error', fehler);
+      audio.src = url;
+    });
+  }
+
+  function starteMikrofon() {
+    zustand.quellArt = 'mikrofon';
+    return starteAnalyse(null);
+  }
+
+  function dateiGewaehlt() {
+    const datei = el.dateiEingabe.files && el.dateiEingabe.files[0];
+    el.dateiEingabe.value = ''; // dieselbe Datei kann erneut gewählt werden
+    if (!datei) return;
+    zustand.quellArt = 'datei';
+    starteAnalyse(datei);
+  }
+
+  /**
+   * Gemeinsamer Start für beide Quellen. Mikrofon und Datei durchlaufen
+   * dieselbe Verarbeitungskette; nur der Quellknoten unterscheidet sich.
+   * @param {File|null} datei  null = Mikrofon
+   */
+  async function starteAnalyse(datei) {
     if (zustand.laeuft || zustand.startetGerade) return;
     zustand.startetGerade = true;
-    setzeStartKnopf('laedt');
-    setzeStatus('Mikrofonzugriff wird angefragt …');
-    protokoll('Mikrofonzugriff wird angefragt.');
+    setzeKnoepfe('laedt');
 
     try {
-      // Automatische Signalverarbeitung abschalten: sie verfälscht Musiksignale
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        video: false
-      });
-      zustand.stream = stream;
-      const spur = stream.getAudioTracks()[0];
-      protokoll('Mikrofonzugriff erteilt: ' + (spur && spur.label ? spur.label : 'Standardgerät') + '.', 'ok');
+      let stream = null;
+      let audio = null;
+
+      if (!datei) {
+        setzeStatus('Mikrofonzugriff wird angefragt …');
+        protokoll('Mikrofonzugriff wird angefragt.');
+        // Automatische Signalverarbeitung abschalten: sie verfälscht Musiksignale
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          video: false
+        });
+        zustand.stream = stream;
+        const spur = stream.getAudioTracks()[0];
+        protokoll('Mikrofonzugriff erteilt: ' + (spur && spur.label ? spur.label : 'Standardgerät') + '.', 'ok');
+        if (spur) {
+          spur.addEventListener('ended', function () {
+            protokoll('Das Mikrofon wurde getrennt.', 'warn');
+            stoppen();
+          });
+        }
+      } else {
+        setzeStatus('Datei wird geladen …');
+        protokoll('Datei gewählt: ' + datei.name + ' (' + dateiGroesse(datei.size) + ').');
+        audio = await erzeugePlayer(datei);
+        zustand.audioEl = audio;
+        el.dateiName.textContent = datei.name;
+        el.player.replaceChildren(audio);
+        el.playerBox.hidden = false;
+        if (isFinite(audio.duration)) {
+          protokoll('Datei dekodierbar, Dauer ' + zahl(audio.duration, 1) + ' s.', 'ok');
+        }
+      }
 
       const Kontext = window.AudioContext || window.webkitAudioContext;
       const ctx = new Kontext();
       zustand.audioCtx = ctx;
-      if (ctx.state === 'suspended') await ctx.resume();
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (_) { /* wird beim Abspielen erneut versucht */ }
+      }
       el.rate.textContent = ctx.sampleRate.toLocaleString('de-DE') + ' Hz';
       protokoll('AudioContext geöffnet: ' + ctx.sampleRate + ' Hz, Puffer ' + KONFIG.puffergroesse + ' Samples.');
 
-      if (zustand.essentiaStatus === 'laedt') {
-        setzeStatus('Warte auf Essentia.js …');
-      }
+      if (zustand.essentiaStatus === 'laedt') setzeStatus('Warte auf Essentia.js …');
       await zustand.essentiaPromise;
 
-      // Knoten erzeugen
-      zustand.quelle = ctx.createMediaStreamSource(stream);
+      // Quellknoten
+      if (stream) {
+        zustand.quelle = ctx.createMediaStreamSource(stream);
+        el.quelle.textContent = 'Mikrofon';
+      } else {
+        zustand.quelle = ctx.createMediaElementSource(audio);
+        zustand.quelle.connect(ctx.destination); // Datei bleibt hörbar
+        el.quelle.textContent = 'Datei: ' + datei.name;
+      }
+
+      // Analyse-Knoten
       zustand.analyser = ctx.createAnalyser();
       zustand.analyser.fftSize = KONFIG.fallback.fftGroesse;
       zustand.analyser.smoothingTimeConstant = 0;
@@ -754,19 +865,35 @@
       zustand.prozessor.connect(zustand.senke);
       zustand.senke.connect(ctx.destination);
 
-      if (spur) {
-        spur.addEventListener('ended', function () {
-          protokoll('Das Mikrofon wurde getrennt.', 'warn');
-          stoppen();
-        });
-      }
-
       zustand.laeuft = true;
       zustand.anzeige = { id: 'hoert' };
       zustand.anzeigeGeaendert = true;
-      setzeStartKnopf('aktiv');
-      protokoll('Analyse gestartet.', 'ok');
+      setzeKnoepfe('aktiv');
       zustand.rafId = requestAnimationFrame(zeichne);
+
+      if (audio) {
+        audio.addEventListener('play', function () {
+          // Klick auf „Play“ ist eine Nutzeraktion: AudioContext sicher fortsetzen
+          if (ctx.state === 'suspended') ctx.resume();
+          protokoll('Wiedergabe läuft.');
+        });
+        audio.addEventListener('pause', function () {
+          if (zustand.laeuft && !audio.ended) protokoll('Wiedergabe pausiert.');
+        });
+        audio.addEventListener('ended', function () {
+          protokoll('Ende der Datei erreicht.', 'ok');
+          stoppen();
+        });
+        try {
+          await audio.play();
+        } catch (_) {
+          protokoll('Automatische Wiedergabe blockiert. Starte die Wiedergabe im Player.', 'warn');
+          setzeStatus('Drücke im Player auf Play, um die Analyse der Datei zu starten.', 'warn');
+        }
+        protokoll('Analyse der Datei gestartet.', 'ok');
+      } else {
+        protokoll('Analyse gestartet.', 'ok');
+      }
     } catch (fehler) {
       const meldung = beschreibeFehler(fehler);
       protokoll(meldung, 'fehler');
@@ -779,6 +906,7 @@
 
   async function stoppen(still) {
     const warAktiv = zustand.laeuft;
+    const warDatei = zustand.quellArt === 'datei';
     zustand.laeuft = false;
     if (zustand.rafId) cancelAnimationFrame(zustand.rafId);
     zustand.rafId = null;
@@ -789,6 +917,16 @@
     }
     // Alle Spuren beenden: erst dadurch erlischt die Mikrofon-Anzeige des Systems
     if (zustand.stream) zustand.stream.getTracks().forEach(function (spur) { spur.stop(); });
+    // Datei-Wiedergabe beenden und Speicher freigeben
+    if (zustand.audioEl) {
+      try { zustand.audioEl.pause(); } catch (_) { /* ignorieren */ }
+      zustand.audioEl.removeAttribute('src');
+      try { zustand.audioEl.load(); } catch (_) { /* ignorieren */ }
+    }
+    if (zustand.dateiUrl) URL.revokeObjectURL(zustand.dateiUrl);
+    el.player.replaceChildren();
+    el.playerBox.hidden = true;
+
     if (zustand.audioCtx && zustand.audioCtx.state !== 'closed') {
       try { await zustand.audioCtx.close(); } catch (_) { /* ignorieren */ }
     }
@@ -796,19 +934,26 @@
     Object.assign(zustand, {
       audioCtx: null, stream: null, quelle: null, analyser: null,
       prozessor: null, senke: null, fallback: null, verfahren: null,
+      audioEl: null, dateiUrl: null,
       rmsDb: -Infinity, kandidaten: [], kandidatId: null, kandidatZaehler: 0,
       anzeige: { id: 'bereit' }, anzeigeGeaendert: true
     });
     zustand.chroma.fill(0);
 
+    el.quelle.textContent = '–';
     el.verfahren.textContent = '–';
     el.rate.textContent = '–';
-    setzeStartKnopf('bereit');
+    setzeKnoepfe('bereit');
     zeichne(performance.now());
 
     if (warAktiv && !still) {
-      protokoll('Analyse gestoppt. Mikrofon und AudioContext wurden freigegeben.', 'ok');
-      setzeStatus('Gestoppt. Das Mikrofon ist freigegeben.');
+      if (warDatei) {
+        protokoll('Analyse der Datei beendet. AudioContext wurde geschlossen.', 'ok');
+        setzeStatus('Gestoppt. Wähle eine neue Datei oder starte das Mikrofon.');
+      } else {
+        protokoll('Analyse gestoppt. Mikrofon und AudioContext wurden freigegeben.', 'ok');
+        setzeStatus('Gestoppt. Das Mikrofon ist freigegeben.');
+      }
     }
   }
 
@@ -823,7 +968,9 @@
     zeichne(performance.now());
     protokoll('Anwendung initialisiert.');
 
-    el.start.addEventListener('click', starten);
+    el.start.addEventListener('click', starteMikrofon);
+    el.datei.addEventListener('click', function () { el.dateiEingabe.click(); });
+    el.dateiEingabe.addEventListener('change', dateiGewaehlt);
     el.stop.addEventListener('click', function () { stoppen(); });
 
     el.notation.addEventListener('change', function () {
@@ -850,8 +997,9 @@
     const sichererKontext = window.isSecureContext &&
       navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function';
     if (!sichererKontext) {
+      zustand.mikrofonMoeglich = false;
       el.start.disabled = true;
-      const meldung = 'Mikrofonzugriff ist nur über HTTPS oder localhost möglich. Öffne die Seite über GitHub Pages oder einen lokalen Server.';
+      const meldung = 'Mikrofonzugriff ist nur über HTTPS oder localhost möglich. Die Analyse von Audiodateien funktioniert trotzdem.';
       setzeStatus(meldung, 'fehler');
       protokoll(meldung, 'fehler');
     }
