@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live-Akkorderkennung mit HPCP-Chroma | Essentia.js</title>
+  <meta name="description" content="Echtzeit-Akkorderkennung im Browser: Mikrofon-Eingang, HPCP-Chroma mit Essentia.js und Template-Matching für Dur-, Moll-, verminderte und übermäßige Dreiklänge.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..600&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="kopf">
+    <div class="titel">
+      <h1>Live-Akkorderkennung</h1>
+      <p>HPCP-Chroma in Echtzeit mit Web Audio API und Essentia.js. Seminarprojekt Musikinformatik, Heinrich-Heine-Universität Düsseldorf.</p>
+    </div>
+    <div class="steuerung">
+      <button id="btnStart" class="knopf knopf-start" type="button" aria-pressed="false">
+        <span class="punkt" aria-hidden="true"></span>
+        <span id="btnStartText">Analyse starten</span>
+      </button>
+      <button id="btnStop" class="knopf knopf-stop" type="button" disabled>Analyse stoppen</button>
+    </div>
+  </header>
+
+  <main class="buehne">
+
+    <!-- Zentrale Anzeige: Chroma-Rad mit erkanntem Akkord in der Mitte -->
+    <section class="rad-bereich" aria-label="Erkannter Akkord">
+      <div class="rad">
+        <svg id="chromaRad" viewBox="0 0 440 440" role="img"
+             aria-label="Chroma-Rad: Energie der zwölf Tonklassen von C bis B"></svg>
+        <div id="akkordBox" class="akkord leer" aria-live="polite">
+          <div id="akkordSymbol" class="akkord-symbol">–</div>
+          <div id="akkordName" class="akkord-name">Bereit</div>
+        </div>
+      </div>
+
+      <div class="einstellungen">
+        <label>
+          Notenschrift
+          <select id="selNotation">
+            <option value="international">International (C … B)</option>
+            <option value="deutsch">Deutsch (C … H)</option>
+          </select>
+        </label>
+        <label>
+          Stille-Schwelle
+          <input id="rngSchwelle" type="range" min="-70" max="-20" step="1" value="-50">
+          <output id="outSchwelle" for="rngSchwelle">−50 dBFS</output>
+        </label>
+        <label class="check">
+          <input id="chkFallback" type="checkbox">
+          FFT-Fallback erzwingen
+        </label>
+      </div>
+    </section>
+
+    <!-- Debugger und Audio-Monitor -->
+    <aside class="monitor" aria-label="Audio-Monitor">
+      <h2>Audio-Monitor</h2>
+
+      <div id="statusBox" class="status">
+        <span id="statusText">Essentia.js wird geladen …</span>
+      </div>
+
+      <dl class="werte">
+        <div><dt>Verfahren</dt><dd id="wVerfahren">–</dd></div>
+        <div><dt>Abtastrate</dt><dd id="wRate">–</dd></div>
+        <div><dt>Puffergröße</dt><dd>4096 Samples</dd></div>
+        <div><dt>Verarbeitete Frames</dt><dd id="wFrames">0</dd></div>
+        <div><dt>Rechenzeit pro Frame</dt><dd id="wZeit">–</dd></div>
+        <div>
+          <dt>Pegel (RMS)</dt>
+          <dd>
+            <span id="wPegel">–</span>
+            <span class="pegel" aria-hidden="true"><span id="pegelBalken"></span></span>
+          </dd>
+        </div>
+      </dl>
+
+      <h3>Beste Kandidaten</h3>
+      <ol id="kandidaten" class="kandidaten">
+        <li class="platzhalter">Noch keine Daten</li>
+      </ol>
+
+      <h3>HPCP-Vektor <small>(Werte in %, normiert auf Maximum)</small></h3>
+      <div id="hpcpWerte" class="hpcp-werte"></div>
+
+      <h3>Protokoll</h3>
+      <ul id="protokoll" class="protokoll" aria-live="off"></ul>
+    </aside>
+
+  </main>
+
+  <footer class="fuss">
+    Referenz und Verarbeitungsstandard:
+    <a href="https://mtg.github.io/essentia.js/examples/#/demos/hpcp-chroma-rt" target="_blank" rel="noopener">Essentia.js Real-Time HPCP Chroma Demo</a>
+    der Music Technology Group (MTG), Universitat Pompeu Fabra, Barcelona.
+  </footer>
+
+  <script src="js/chords.js"></script>
+  <script src="js/fallback-chroma.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
