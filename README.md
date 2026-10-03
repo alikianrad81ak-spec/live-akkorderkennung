@@ -63,10 +63,6 @@ live-akkorderkennung/
 ├── chords.js           Akkordvorlagen und Template-Matching
 ├── fallback-chroma.js  FFT-Chroma ohne WebAssembly
 ├── app.js              Audio-Eingang, HPCP, Zustandsverwaltung, Darstellung
-├── evaluation.html     Evaluationsseite
-├── eval.js             Offline-Analyse, Metriken, Export
-├── testkorpus.py       Erzeugung des synthetischen Testkorpus
-├── testkorpus_*.wav/.lab, demo-akkorde.wav/.lab   Testdaten mit Referenz
 └── README.md
 ```
 
@@ -153,53 +149,6 @@ scheitert oder Essentia während der Analyse einen Fehler wirft.
 Übermäßige Dreiklänge sind symmetrisch: C+, E+ und G♯+ bestehen aus denselben
 Tonklassen und lassen sich über Chroma allein nicht unterscheiden. Bei
 Gleichstand entscheidet die Tonklasse mit der höchsten Energie als Grundton.
-
-## Evaluation
-
-Die Seite `evaluation.html` (verlinkt in der Fußzeile der Anwendung) misst die
-Erkennungsgenauigkeit mit Referenz-Annotationen. Sie ist ein Werkzeug für die
-Projektauswertung und nicht Teil der eigentlichen Anwendung.
-
-**Eingabe:** Audiodateien mit Referenzen gleichen Namens im MIREX-Format `.lab`
-(`Start Ende Label`, Labels in Harte-Notation wie `C:maj`, `A:min`, `B:dim`,
-`C:aug`, `N`) oder als JAMS (z. B. aus GuitarSet). Ohne Referenzdatei wird der
-Akkord aus dem Dateinamen gelesen (`Am_gitarre.wav`); stille Frames gelten dann
-als „kein Akkord“.
-
-**Verarbeitung:** Die Dateien werden offline mit genau denselben Algorithmen
-analysiert wie im Live-Betrieb: 44,1 kHz, Mono, Frames zu 4096 Samples. Für
-FFT-Chroma wird das Spektrum wie im `AnalyserNode` berechnet (Blackman-Fenster,
-8192 Punkte). Verglichen werden vier Konfigurationen:
-
-| Merkmal | Stabilisierung |
-|---|---|
-| HPCP (Essentia.js) | mit Glättung und Hysterese (wie in der Anwendung) |
-| HPCP (Essentia.js) | ohne |
-| FFT-Chroma | mit Glättung und Hysterese |
-| FFT-Chroma | ohne |
-
-**Metriken:**
-
-- *Genauigkeit:* Anteil der Frames mit richtigem Grundton und Akkordtyp, zeitlich gewichtet (entspricht der Chord Symbol Recall aus MIREX). Septakkorde der Referenz werden auf den Dreiklang reduziert; Labels außerhalb des Vokabulars (sus2, sus4, X) werden ausgelassen. Übermäßige Dreiklänge gelten bei gleichen Tonklassen als richtig.
-- *Fehlerarten:* Typ falsch (Grundton richtig), Grundton falsch, Akkord verpasst, falscher Alarm.
-- *Wechsel pro Minute:* Maß für das Flackern der Anzeige, verglichen mit der Referenz.
-- *Verwechslungsmatrix* der Akkordtypen und *Rechenzeit* pro Frame.
-
-**Export:** Bericht (TXT), Zusammenfassung und Frame-Zeitleiste (CSV im
-deutschen Excel-Format).
-
-### Testdaten
-
-| Datei | Inhalt |
-|---|---|
-| `demo-akkorde.wav` / `.lab` | C, Am, F, G, B°, C+ (je 2,5 s), einfache Sinusklänge |
-| `testkorpus_gitarre.wav` / `.lab` | 48 Akkorde (12 Grundtöne × 4 Typen), gestrummte Gitarre (Karplus-Strong), 100 s |
-| `testkorpus_klavier.wav` / `.lab` | dieselben Akkordtypen als Klavierklang (additive Synthese), 100 s |
-| `testkorpus.py` | Skript, das den Testkorpus reproduzierbar erzeugt (fester Zufallswert) |
-
-Der Testkorpus enthält zufällige Umkehrungen (ca. 30 %), Hintergrundrauschen
-(SNR ca. 25 dB) und drei Pausen ohne Akkord. Da die Klänge synthetisch sind,
-sollten die Ergebnisse durch eigene Aufnahmen echter Instrumente ergänzt werden.
 
 ## Grenzen des Verfahrens
 
